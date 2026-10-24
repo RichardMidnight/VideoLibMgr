@@ -1,0 +1,14 @@
+lets design a good videoLibraryManager.  
+brainstorming...  it needs: 
+to play videos in a folder, have forward and back buttons for other videos in the folder.  
+a delete button to delete the current video
+a trim button to trim off the beginning and end (user sets markers)
+a cut button that cuts out a section
+an option to see other videos in the series (usually my name matching with an increasing number)
+rename an entire series - keeping the numbering the same
+Delete an entire series
+select videos in a series to join.
+fix a damaged video
+there will be more...
+
+start with a simple video player based on vlc that has buttons for next and previous videos in the same folder, and a delete button to delete the current video.  

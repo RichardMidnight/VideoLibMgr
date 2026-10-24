@@ -1,0 +1,34 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "video-library-manager"
+version = "0.1.0"
+description = "Local video library player built on libVLC (Windows first)"
+requires-python = ">=3.11"
+dependencies = [
+    "PySide6>=6.7",
+    "python-vlc>=3.0",
+    "Send2Trash>=1.8",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8",
+    "ruff>=0.6",
+]
+
+[project.scripts]
+vlm = "vlm.app:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
