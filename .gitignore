@@ -6,4 +6,5 @@ venv/
 build/
 dist/
 .pytest_cache/
+videos/
 .ruff_cache/
