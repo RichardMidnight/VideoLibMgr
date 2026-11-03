@@ -1,0 +1,40 @@
+# Summary of Instructions
+
+Build **VideoLibraryManager**, a Linux-first, VLC-based video player that treats an entire folder as a playlist. Goal is a lightweight app inspired by the Windows "Movies & TV" experience.
+
+## Core Features
+- **Folder-based playback** - Load all videos from a folder, naturally sorted by filename (numbers compared numerically)
+- **Transport controls** - Play/Pause, Previous, Next
+- **Auto-advance** - Automatically go to next video when current ends (toggleable)
+- **Delete current video** - Move to Recycle Bin via `send2trash`. Must advance to the next video first, trash asynchronously in background with retries, and never hang the UI
+- **Click-to-seek** - Clicking the progress bar jumps to that position
+- **Fullscreen** - With auto-hiding controls
+- **Drag & drop** - Support dropping files or folders
+- **File association ready** - Should be launchable by opening a video with the app
+
+## UI/UX
+- **Dark theme** inspired by Windows Movies & TV
+- **Controls below video** by default (overlaying unreliable with libVLC on Windows)
+- **Optional overlay control bar** - Movies & TV style, white text on semi-transparent background, auto-hides on mouse movement (toggleable in Settings)
+- **Left file list panel (optional)** - Shows all videos in current folder. Sortable by Name, Size, Date, or Rating (ascending/descending). Click to play, right-click to rate (0-5 stars). Syncs with currently playing video
+- **Settings dialog** - For toggling overlay controls
+- **Window persistence** - Remember size, position, and window state between launches
+- **"Open Folder" uses folder picker** - Always prompts for a directory
+- **"Open File" loads its entire folder as the playlist**
+
+## Technical Requirements
+- **Stack** - Python 3.11+, PySide6, python-vlc (libVLC 3.x), send2trash
+- **Architecture** - Strict separation: `core/` = pure Python (no Qt/VLC), `video/engine.py` = only module importing `vlc`, `ui/` = only Qt
+- **Prerequisite checks** - Prompt to install missing packages/VLC on first run
+- **Config persistence** - JSON config (`%APPDATA%/VideoLibraryManager/config.json`) for last folder, volume, ratings, panel state/sort/width, overlay setting. `QSettings` for window geometry
+- **Robust deletion** - Advance playback before trashing, background worker with retries, warn on failure but keep playing
+- **Natural sorting** - Human-friendly ordering (e.g. `Ep 2` before `Ep 10`)
+- **Filtering** - Skip hidden files, only show known video extensions
+- **Testing/Linting** - `pytest` and `ruff`
+
+## Key Behaviors
+- Opening a single video file should load that file's parent folder as the full playlist and start from the selected file
+- Deleting the last video should show the empty state
+- If trash fails, show a warning but don't stop playback
+- Overlay controls only appear when enabled and in non-fullscreen/player view as configured
+- All UI state (panel visible/width, sort, ratings) should persist across sessions

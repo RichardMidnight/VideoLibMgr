@@ -11,6 +11,7 @@ from PySide6.QtCore import (
     QAbstractTableModel,
     QModelIndex,
     QObject,
+    QPointF,
     QRunnable,
     QSettings,
     QSize,
@@ -20,10 +21,13 @@ from PySide6.QtCore import (
     QTimer,
     Signal,
 )
-from PySide6.QtGui import QColor, QCursor, QFont, QKeySequence, QShortcut
+from PySide6.QtGui import QColor, QCursor, QFont, QKeySequence, QPainter, QShortcut
 from PySide6.QtWidgets import (
+    QCheckBox,
     QDialog,
+    QDialogButtonBox,
     QFileDialog,
+    QFormLayout,
     QHBoxLayout,
     QHeaderView,
     QLabel,
@@ -33,6 +37,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QSizePolicy,
     QSlider,
+    QSpacerItem,
     QSplitter,
     QStackedWidget,
     QStyle,
@@ -227,57 +232,103 @@ def _format_size(size: int) -> str:
 def _format_date(mtime: float) -> str:
     if mtime <= 0:
         return ""
+    return time.strftime("%Y-%m-%d", time.localtime(mtime))
+
+
+class ToggleSwitch(QCheckBox):
+    """Checkbox rendered as a pill-style toggle switch (Movies & TV / Fluent style).
+
+    Subclasses ``QCheckBox`` so all check semantics (``isChecked``, ``toggled``,
+    keyboard shortcuts) are unchanged. The track is a stylesheet-styled
+    indicator; the knob is painted in ``paintEvent`` because the Qt style-sheet
+    engine has no reliable CSS gradient support for a circular knob.
+    """
+
+    KNOB_PADDING = 3
+    _TRACK = """
+    QCheckBox {
+        spacing: 12px;
+    }
+    QCheckBox::indicator {
+        width: 40px;
+        height: 22px;
+        border-radius: 11px;
+    }
+    QCheckBox::indicator:unchecked {
+        background-color: #3a3a3a;
+    }
+    QCheckBox::indicator:checked {
+        background-color: #4c8dff;
+    }
+    """
+
+    def __init__(self, text: str, parent=None) -> None:
+        super().__init__(text, parent)
+        self.setStyleSheet(self._TRACK)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+
+    def paintEvent(self, event) -> None:
+        super().paintEvent(event)
+        # The track is styled at 40x22 and this widget always carries the
+        # indicator only (no text), so the indicator occupies the widget's
+        # left 40x22 px, vertically centred.
+        width, height = 40, 22
+        if self.width() <= 0 or self.height() <= 0:
+            return
+        y = max(0, (self.height() - height) // 2)
+        radius = max(2, min(width, height) // 2 - self.KNOB_PADDING)
+        cy = y + height // 2
+        if self.isChecked():
+            cx = width - self.KNOB_PADDING - radius
+            color = QColor("#ffffff")
+        else:
+            cx = self.KNOB_PADDING + radius
+            color = QColor("#cfcfcf")
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(color)
+        painter.drawEllipse(QPointF(cx, cy), radius, radius)
+        painter.end()
+
+
+class SettingsDialog(QDialog):
+    def __init__(self, config: Config, parent=None) -> None:
+        super().__init__(parent)
+        self.config = config
+        self.setWindowTitle("Settings")
+        self.setModal(True)
+        self.setMinimumWidth(360)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(12)
+
+        form = QFormLayout()
+        form.setSpacing(10)
+        self.overlay_checkbox = ToggleSwitch("")
+        self.overlay_checkbox.setToolTip(
+            "Show the control bar floating on top of the video (Movies & TV style) "
+            "instead of below it."
+        )
+        self.overlay_checkbox.setChecked(bool(self.config.overlay_controls))
+        form.addRow("Overlay control bar on video (Movies & TV style)", self.overlay_checkbox)
+
+        layout.addLayout(form)
+        layout.addItem(QSpacerItem(0, 0, QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Expanding))
+
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+    def accept(self) -> None:
+        self.config.overlay_controls = self.overlay_checkbox.isChecked()
+        self.config.save()
+        super().accept()
 
 
 class ClickableSlider(QSlider):
-    """Seek bar that jumps to the clicked position."""
-
-    def mousePressEvent(self, event) -> None:
-        if event.button() == Qt.MouseButton.LeftButton:
-            option = QStyleOptionSlider()
-            self.initStyleOption(option)
-            groove = self.style().subControlRect(
-                QStyle.ComplexControl.CC_Slider,
-                option,
-                QStyle.SubControl.SC_SliderGroove,
-                self,
-            )
-            handle = self.style().subControlRect(
-                QStyle.ComplexControl.CC_Slider,
-                option,
-                QStyle.SubControl.SC_SliderHandle,
-                self,
-            )
-            if self.orientation() == Qt.Orientation.Horizontal:
-                if groove.width() <= 0:
-                    super().mousePressEvent(event)
-                    return
-                handle_width = handle.width() or 0
-                pos = event.position().x() if hasattr(event, "position") else event.x()
-                range_span = self.maximum() - self.minimum()
-                if range_span <= 0:
-                    super().mousePressEvent(event)
-                    return
-                if abs(pos - (handle.x() + handle_width / 2)) <= max(6, handle_width):
-                    super().mousePressEvent(event)
-                    return
-                slider_pos = pos - groove.x() - handle_width / 2
-                slider_pos = max(0, min(slider_pos, groove.width() - handle_width))
-                ratio = (
-                    slider_pos / (groove.width() - handle_width)
-                    if (groove.width() - handle_width) > 0
-                    else 0
-                )
-                value = self.minimum() + range_span * ratio
-                self.setValue(round(value))
-                self.sliderMoved.emit(self.value())
-                self.sliderPressed.emit()
-                self.sliderReleased.emit()
-                event.accept()
-                return
-        super().mousePressEvent(event)
-
-
     """Seek bar that jumps to the clicked position."""
 
     def mousePressEvent(self, event) -> None:
@@ -411,6 +462,11 @@ class MainWindow(QMainWindow):
         self._tick.timeout.connect(self._on_tick)
         self._tick.start()
 
+        self._hide_timer = QTimer(self)
+        self._hide_timer.setSingleShot(True)
+        self._hide_timer.setInterval(HIDE_CONTROLS_MS)
+        self._hide_timer.timeout.connect(self._hide_fullscreen_controls)
+
         self._update_header()
         self._update_play_icon()
         self._apply_overlay_style()
@@ -432,45 +488,51 @@ class MainWindow(QMainWindow):
             self.overlay_container.setStyleSheet("")
 
     def _update_controls_layout(self) -> None:
+        """Move the control bar to where the current settings say it belongs."""
         overlay = bool(self.config.overlay_controls) and self.stack.currentIndex() == 1
         if overlay:
-            if self.controls.parent() is not self.overlay_container:
-                player_layout = self.stack.parent()
-                if player_layout is None:
-                    return
-                player_layout.removeWidget(self.controls)
-                self.overlay_container.setParent(self.stack)
-                self.overlay_container.show()
-                self.overlay_container.raise_()
-                layout = self.overlay_container.layout()
-                if layout and layout.count() == 0:
-                    layout.addWidget(self.controls)
-            self._position_overlay_controls()
-            self.controls.show()
+            self._move_controls_to_overlay()
             self.overlay_container.setVisible(True)
+            self._position_overlay_controls()
         else:
             self.overlay_container.setVisible(False)
-            if self.controls.parent() is not self:
-                parent = self.controls.parent()
-                if parent is not None:
-                    layout = parent.layout()
-                    if layout is not None:
-                        layout.removeWidget(self.controls)
-                # put back into player_pane layout
-                player_pane = self.splitter.widget(1)
-                if player_pane is not None:
-                    player_layout = player_pane.layout()
-                    if player_layout is not None and player_layout.indexOf(self.controls) == -1:
-                        player_layout.addWidget(self.controls)
-            self.controls.show()
+            self._move_controls_to_player_pane()
+        self.controls.show()
+        if overlay and self.engine.is_playing():
+            # Movies & TV style: fade the bar out after a moment of idle.
+            self._overlay_hide_timer.start()
+
+    def _detach_controls(self) -> None:
+        """Remove the bar from whatever layout currently holds it (no reparent)."""
+        parent = self.controls.parent()
+        layout = parent.layout() if parent is not None else None
+        if layout is not None and layout.indexOf(self.controls) != -1:
+            layout.removeWidget(self.controls)
+
+    def _move_controls_to_overlay(self) -> None:
+        layout = self.overlay_container.layout()
+        if layout is None:
+            return
+        if layout.indexOf(self.controls) == -1:
+            self._detach_controls()
+            layout.addWidget(self.controls)
+        self.overlay_container.raise_()
+
+    def _move_controls_to_player_pane(self) -> None:
+        pane = self.splitter.widget(1)
+        layout = pane.layout() if pane is not None else None
+        if layout is None:
+            self._detach_controls()
+            return
+        if layout.indexOf(self.controls) == -1:
+            self._detach_controls()
+            layout.addWidget(self.controls)
 
     def _position_overlay_controls(self) -> None:
         if not self.overlay_container.isVisible():
             return
         margin = 16
-        width = self.stack.width() - margin * 2
-        if width < 400:
-            width = min(self.stack.width() - margin * 2, 900)
+        width = max(320, min(self.stack.width() - margin * 2, 960))
         height = self.controls.sizeHint().height() or 46
         x = max(margin, (self.stack.width() - width) // 2)
         y = self.stack.height() - height - margin
@@ -721,14 +783,19 @@ class MainWindow(QMainWindow):
         splitter.setSizes([self.config.panel_width, 900])
         self.splitter = splitter
 
-        self.overlay_container = QWidget(self)
+        # Floating control bar ("Movies & TV" style). The container is a child
+        # of the stack so its geometry is in stack coordinates, but it is not
+        # part of the stacked layout, so it floats above the video and is not
+        # affected by page switches. It is native so it can be raised above
+        # libVLC's video surface, which is a separate native window.
+        self.overlay_container = QWidget(self.stack)
         self.overlay_container.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self.overlay_container.setAttribute(Qt.WidgetAttribute.WA_NativeWindow, True)
         self.overlay_container.setObjectName("OverlayControls")
         self.overlay_container.setVisible(False)
         overlay_layout = QVBoxLayout(self.overlay_container)
         overlay_layout.setContentsMargins(0, 0, 0, 0)
         overlay_layout.setSpacing(0)
-        overlay_layout.addWidget(self.controls)
 
         root.addWidget(self.top_bar)
         root.addWidget(self.splitter, 1)
@@ -785,6 +852,8 @@ class MainWindow(QMainWindow):
         for sequence, handler in shortcuts:
             QShortcut(sequence, self).activated.connect(handler)
 
+    def open_settings(self) -> None:
+        dialog = SettingsDialog(self.config, self)
         if dialog.exec():
             self._apply_overlay_style()
             self._update_controls_layout()
@@ -823,12 +892,40 @@ class MainWindow(QMainWindow):
     def _pick_folder(self) -> None:
         self.open_folder(pick=True)
 
+    def open_folder(self, path: str | Path | None = None, pick: bool = False) -> None:
+        if path is None or pick:
+            start = self.config.last_folder or str(Path.home())
+            chosen = QFileDialog.getExistingDirectory(self, "Open video folder", start)
+            if not chosen:
+                return
+            path = chosen
+
+        folder = Path(path)
+        if not folder.is_dir():
+            QMessageBox.warning(self, "Open folder", f"Folder not found:\n{folder}")
+            return
+
+        self.playlist = FolderPlaylist.from_folder(folder)
+        self.config.last_folder = str(folder)
+        self._current_folder = folder
+        self._refresh_file_list()
+
+        if not self.playlist:
+            self._show_empty_page()
+            QMessageBox.information(self, "Open folder", f"No video files found in:\n{folder}")
+            return
+
+        self._show_player_page()
+        self._play_current()
+
     def open_path(self, path: str | Path) -> None:
         candidate = Path(path)
         if candidate.is_dir():
             self.open_folder(candidate)
         elif candidate.is_file():
             self.open_file(candidate)
+        else:
+            QMessageBox.warning(self, "Open", f"Path not found:\n{candidate}")
 
     # -- playback ---------------------------------------------------------
 
@@ -1076,8 +1173,6 @@ class MainWindow(QMainWindow):
             if position != self._cursor_pos:
                 self._cursor_pos = position
                 self._show_fullscreen_controls()
-                if self.config.overlay_controls:
-                    self._show_overlay_controls()
 
         if not self.engine.has_media():
             return
@@ -1149,11 +1244,17 @@ class MainWindow(QMainWindow):
         if self.isFullScreen():
             self._toggle_fullscreen()
 
+    def _overlay_active(self) -> bool:
+        return bool(self.config.overlay_controls) and self.stack.currentIndex() == 1
+
     def _show_fullscreen_controls(self) -> None:
         if not self.isFullScreen():
             return
-        self.controls.show()
         self.unsetCursor()
+        if self._overlay_active():
+            self._show_overlay_controls()
+        else:
+            self.controls.show()
         self._hide_timer.start()
 
     def _hide_fullscreen_controls(self) -> None:
@@ -1162,7 +1263,10 @@ class MainWindow(QMainWindow):
         if not self.engine.is_playing():
             self._hide_timer.start()
             return
-        self.controls.hide()
+        if self._overlay_active():
+            self.overlay_container.setVisible(False)
+        else:
+            self.controls.hide()
         self.setCursor(Qt.CursorShape.BlankCursor)
 
     # -- engine events ----------------------------------------------------
@@ -1188,12 +1292,19 @@ class MainWindow(QMainWindow):
     def dragEnterEvent(self, event) -> None:
         if event.mimeData().hasUrls():
             event.acceptProposedAction()
-        urls = event.mimeData().urls()
-        if urls:
-            local = urls[0].toLocalFile()
+
+    def dragMoveEvent(self, event) -> None:
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+
+    def dropEvent(self, event) -> None:
+        for url in event.mimeData().urls():
+            local = url.toLocalFile()
             if local:
                 self.open_path(local)
                 event.acceptProposedAction()
+                return
+        event.ignore()
 
     def closeEvent(self, event) -> None:
         try:
@@ -1205,4 +1316,5 @@ class MainWindow(QMainWindow):
         self.config.save()
         self.engine.stop()
         self._trash_pool.waitForDone(2000)
+        self.engine.shutdown()
         super().closeEvent(event)

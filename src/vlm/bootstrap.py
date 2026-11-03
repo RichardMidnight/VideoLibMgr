@@ -27,7 +27,18 @@ def ensure_prerequisites() -> bool:
         print(f"Python {required}+ is required (found {sys.version.split()[0]}).")
         print("Download it from https://www.python.org/downloads/")
         return False
+    _linux_video_env()
     return _ensure_packages() and _ensure_libvlc()
+
+
+def _linux_video_env() -> None:
+    """Under Wayland, run Qt on X11 so libVLC can attach to the video window.
+
+    libVLC's X11 output needs a real X11 window ID from ``winId()``; the
+    Wayland backend doesn't provide one. Harmless if Qt is already on X11.
+    """
+    if sys.platform.startswith("linux") and os.environ.get("WAYLAND_DISPLAY"):
+        os.environ.setdefault("QT_QPA_PLATFORM", "xcb")
 
 
 # -- python packages ------------------------------------------------------
@@ -105,21 +116,23 @@ def _ensure_libvlc() -> bool:
         if library:
             _configure_mac_libvlc(library)
             return True
-    else:
-        import ctypes.util
-
-        if ctypes.util.find_library("vlc"):
-            return True
-
-    print("libVLC was not found. VLC media player is required.")
-    if sys.platform == "darwin":
+        print("libVLC was not found. VLC media player is required.")
         print("Install it with:  brew install --cask vlc")
         print("or download it from https://www.videolan.org/vlc/download-macosx.html")
+        return False
     else:
-        print("Install it with your package manager, for example:")
-        print("  Debian/Ubuntu: sudo apt install vlc")
-        print("  Fedora:        sudo dnf install vlc")
-    return False
+        # Linux: let python-vlc's own loader do the real test. It knows the
+        # versioned names (libvlc.so.5 for VLC 3.x, libvlc.so.9 for 4.x ...),
+        # unlike ctypes.util.find_library, which only sees "libvlc.so".
+        try:
+            import vlc  # noqa: F401
+        except OSError:
+            print("libVLC was not found. VLC media player is required.")
+            print("Install it with your package manager, for example:")
+            print("  Debian/Ubuntu: sudo apt install vlc")
+            print("  Fedora:        sudo dnf install vlc")
+            return False
+        return True
 
 
 def _find_windows_libvlc() -> Path | None:

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import sys
-from pathlib import Path
 
 from PySide6.QtGui import QColor, QPalette
 from PySide6.QtWidgets import QApplication, QMessageBox
@@ -153,9 +152,7 @@ def main(argv: list[str] | None = None) -> int:
     window.show()
 
     for argument in arguments[1:]:
-        candidate = Path(argument)
-        if candidate.exists():
-            window.open_path(candidate)
-            break
+        window.open_path(argument)
+        break
 
     return app.exec()

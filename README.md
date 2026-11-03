@@ -1,8 +1,10 @@
 # Video Library Manager
 
 Minimal local video player: open a video or folder, move through the folder with
-Prev/Next, and delete the current video to the Recycle Bin. Windows-first;
+Prev/Next, and delete the current video to the Recycle Bin. linux-first;
 the engine and UI layers are kept separate for a later port.
+
+make it look a lot like windows "Media & TV".  
 
 ## Run
 
